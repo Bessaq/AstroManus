@@ -1,0 +1,45 @@
+nohup: ignoring input
+INFO:astrology-server:Iniciando Servidor MCP de Astrologia...
+INFO:astrology-server:URL da API: http://localhost:8000
+  + Exception Group Traceback (most recent call last):
+  |   File "/home/ubuntu/ToAMAO/MCP/mcp-astrology-server.py", line 469, in <module>
+  |     asyncio.run(main())
+  |   File "/usr/lib/python3.11/asyncio/runners.py", line 188, in run
+  |     return runner.run(main)
+  |            ^^^^^^^^^^^^^^^^
+  |   File "/usr/lib/python3.11/asyncio/runners.py", line 120, in run
+  |     return self._loop.run_until_complete(task)
+  |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |   File "/usr/lib/python3.11/asyncio/base_events.py", line 650, in run_until_complete
+  |     return future.result()
+  |            ^^^^^^^^^^^^^^^
+  |   File "/home/ubuntu/ToAMAO/MCP/mcp-astrology-server.py", line 461, in main
+  |     async with stdio_server() as (read_stream, write_stream):
+  |   File "/usr/lib/python3.11/contextlib.py", line 211, in __aexit__
+  |     await anext(self.gen)
+  |   File "/usr/local/lib/python3.11/dist-packages/mcp/server/stdio.py", line 87, in stdio_server
+  |     async with anyio.create_task_group() as tg:
+  |   File "/usr/local/lib/python3.11/dist-packages/anyio/_backends/_asyncio.py", line 772, in __aexit__
+  |     raise BaseExceptionGroup(
+  | ExceptionGroup: unhandled errors in a TaskGroup (1 sub-exception)
+  +-+---------------- 1 ----------------
+    | Traceback (most recent call last):
+    |   File "/usr/local/lib/python3.11/dist-packages/mcp/server/stdio.py", line 63, in stdin_reader
+    |     async for line in stdin:
+    |   File "/usr/local/lib/python3.11/dist-packages/anyio/_core/_fileio.py", line 83, in __aiter__
+    |     line = await self.readline()
+    |            ^^^^^^^^^^^^^^^^^^^^^
+    |   File "/usr/local/lib/python3.11/dist-packages/anyio/_core/_fileio.py", line 99, in readline
+    |     return await to_thread.run_sync(self._fp.readline)
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "/usr/local/lib/python3.11/dist-packages/anyio/to_thread.py", line 56, in run_sync
+    |     return await get_async_backend().run_sync_in_worker_thread(
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "/usr/local/lib/python3.11/dist-packages/anyio/_backends/_asyncio.py", line 2470, in run_sync_in_worker_thread
+    |     return await future
+    |            ^^^^^^^^^^^^
+    |   File "/usr/local/lib/python3.11/dist-packages/anyio/_backends/_asyncio.py", line 967, in run
+    |     result = context.run(func, *args)
+    |              ^^^^^^^^^^^^^^^^^^^^^^^^
+    | OSError: [Errno 9] Bad file descriptor
+    +------------------------------------

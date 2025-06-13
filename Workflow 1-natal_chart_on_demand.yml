@@ -1,0 +1,113 @@
+id: natal_chart_on_demand
+namespace: astrotagiario.charts
+description: "Gera mapa natal sob demanda com cache inteligente"
+
+inputs:
+  - id: name
+    type: STRING
+    defaults: "Usuário Astrotagiario"
+    description: "Nome da pessoa"
+  - id: year
+    type: INT
+    defaults: 1990
+    description: "Ano de nascimento"
+  - id: month
+    type: INT
+    defaults: 1
+    description: "Mês de nascimento (1-12)"
+  - id: day
+    type: INT
+    defaults: 1
+    description: "Dia de nascimento (1-31)"
+  - id: hour
+    type: INT
+    defaults: 12
+    description: "Hora de nascimento (0-23)"
+  - id: minute
+    type: INT
+    defaults: 0
+    description: "Minuto de nascimento (0-59)"
+  - id: latitude
+    type: FLOAT
+    defaults: -15.7939
+    description: "Latitude do local de nascimento"
+  - id: longitude
+    type: FLOAT
+    defaults: -47.8828
+    description: "Longitude do local de nascimento"
+  - id: tz_str
+    type: STRING
+    defaults: "America/Sao_Paulo"
+    description: "Timezone (ex: America/Sao_Paulo)"
+  - id: user_id
+    type: STRING
+    defaults: "guest"
+    description: "ID único do usuário (para cache)"
+
+# Variáveis calculadas
+variables:
+  birth_date: "{{ inputs.year }}-{{ '%02d' | format(inputs.month) }}-{{ '%02d' | format(inputs.day) }}"
+  cache_key: "natal_{{ inputs.user_id }}_{{ vars.birth_date }}_{{ inputs.hour }}{{ inputs.minute }}"
+  cache_uri: "kestra:///cache/natal/{{ vars.cache_key }}.json"
+
+tasks:
+  # 1. Verificar se existe no cache
+  - id: check_cache
+    type: io.kestra.plugin.core.storage.Exists
+    uri: "{{ vars.cache_uri }}"
+
+  # 2. Switch baseado na existência do cache
+  - id: cache_decision
+    type: io.kestra.plugin.core.flow.Switch
+    value: "{{ outputs.check_cache.exists }}"
+    cases:
+      "true":
+        # Cache HIT - carregar do armazenamento
+        - id: load_from_cache
+          type: io.kestra.plugin.core.storage.Get
+          uri: "{{ vars.cache_uri }}"
+        - id: log_cache_hit
+          type: io.kestra.plugin.core.log.Log
+          message: "✅ CACHE HIT para {{ vars.cache_key }}"
+      "false":
+        # Cache MISS - calcular novo mapa
+        - id: calculate_natal_chart
+          type: io.kestra.plugin.scripts.python.Script
+          description: "Calcula mapa natal usando astrotask.py"
+          runner: DOCKER
+          docker:
+            image: astrotagiario:latest
+            pullPolicy: IF_NOT_PRESENT
+          script: |
+            python astrotask.py \
+              --task natal_chart \
+              --name "{{ inputs.name }}" \
+              --year {{ inputs.year }} \
+              --month {{ inputs.month }} \
+              --day {{ inputs.day }} \
+              --hour {{ inputs.hour }} \
+              --minute {{ inputs.minute }} \
+              --latitude {{ inputs.latitude }} \
+              --longitude {{ inputs.longitude }} \
+              --tz-str "{{ inputs.tz_str }}"
+        
+        # Salvar resultado no cache
+        - id: save_to_cache
+          type: io.kestra.plugin.core.storage.Put
+          uri: "{{ vars.cache_uri }}"
+          from: "{{ outputs.calculate_natal_chart.vars.stdout }}"
+        
+        - id: log_cache_miss
+          type: io.kestra.plugin.core.log.Log
+          message: "💾 CACHE MISS - Novo cálculo salvo como {{ vars.cache_key }}"
+
+  # 3. Log de métricas
+  - id: log_metrics
+    type: io.kestra.plugin.core.log.Log
+    message: |
+      📊 MÉTRICAS DO MAPA NATAL:
+      👤 Usuário: {{ inputs.name }} (ID: {{ inputs.user_id }})
+      📅 Data: {{ vars.birth_date }} {{ inputs.hour }}:{{ '%02d' | format(inputs.minute) }}
+      🌍 Local: {{ inputs.latitude }}, {{ inputs.longitude }}
+      💾 Cache: {{ outputs.check_cache.exists and 'HIT' or 'MISS' }}
+      ⏱️ Executado em: {{ execution.startDate }}

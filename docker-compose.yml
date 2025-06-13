@@ -1,0 +1,236 @@
+# Docker Compose para Astrotagiario + Kestra
+# Configuração completa para desenvolvimento e produção
+version: '3.8'
+
+services:
+  # === KESTRA CORE SERVICES ===
+  postgresql:
+    image: postgres:15
+    container_name: astro_postgres
+    environment:
+      POSTGRES_DB: kestra
+      POSTGRES_USER: kestra
+      POSTGRES_PASSWORD: kestra
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - astro_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kestra"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: astro_redis
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    networks:
+      - astro_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  kestra:
+    image: kestra/kestra:latest
+    container_name: astro_kestra
+    pull_policy: always
+    environment:
+      KESTRA_CONFIGURATION: |
+        datasources:
+          postgres:
+            url: jdbc:postgresql://postgresql:5432/kestra
+            username: kestra
+            password: kestra
+        kestra:
+          server:
+            basic-auth:
+              enabled: false
+          repository:
+            type: postgres
+          queue:
+            type: redis
+            redis:
+              uri: redis://redis:6379
+          storage:
+            type: local
+            local:
+              base-path: "/app/storage"
+          url: http://localhost:8080/
+    ports:
+      - "8080:8080"
+    volumes:
+      - kestra_data:/app/storage
+      - kestra_logs:/app/logs
+      - ./kestra-flows:/app/flows
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - astro_network
+    depends_on:
+      postgresql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # === ASTROTAGIARIO SERVICES ===
+  astrotagiario-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: astro_api
+    environment:
+      - DATABASE_URL=postgresql://astro_user:astro_pass@astro_postgres:5432/astro_db
+      - REDIS_URL=redis://redis:6379/1
+      - API_KEY_KERYKEION=testapikey
+      - KESTRA_URL=http://kestra:8080
+    ports:
+      - "8000:8000"
+    volumes:
+      - astro_storage:/app/storage
+      - astro_cache:/app/cache
+      - astro_logs:/app/logs
+    networks:
+      - astro_network
+    depends_on:
+      kestra:
+        condition: service_healthy
+      astro_postgres:
+        condition: service_healthy
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # === BANCO DE DADOS DA APLICAÇÃO ===
+  astro_postgres:
+    image: postgres:15
+    container_name: astro_db
+    environment:
+      POSTGRES_DB: astro_db
+      POSTGRES_USER: astro_user
+      POSTGRES_PASSWORD: astro_pass
+    volumes:
+      - astro_postgres_data:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - astro_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U astro_user -d astro_db"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # === REDIS PARA CACHE DA APLICAÇÃO ===
+  astro_redis:
+    image: redis:7-alpine
+    container_name: astro_cache
+    command: redis-server --appendonly yes --databases 16
+    volumes:
+      - astro_redis_data:/data
+    networks:
+      - astro_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # === MONITORING ===
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: astro_prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - astro_network
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: astro_grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=astro123
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources
+    ports:
+      - "3000:3000"
+    networks:
+      - astro_network
+    depends_on:
+      - prometheus
+
+  # === NGINX PROXY ===
+  nginx:
+    image: nginx:alpine
+    container_name: astro_nginx
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./nginx/ssl:/etc/ssl/nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    networks:
+      - astro_network
+    depends_on:
+      - astrotagiario-api
+      - kestra
+
+volumes:
+  # Kestra volumes
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  kestra_data:
+    driver: local
+  kestra_logs:
+    driver: local
+  
+  # Astrotagiario volumes
+  astro_postgres_data:
+    driver: local
+  astro_redis_data:
+    driver: local
+  astro_storage:
+    driver: local
+  astro_cache:
+    driver: local
+  astro_logs:
+    driver: local
+  
+  # Monitoring volumes
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+
+networks:
+  astro_network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

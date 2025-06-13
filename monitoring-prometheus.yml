@@ -1,0 +1,76 @@
+# Configuração do Prometheus para monitoramento do Astrotagiario + Kestra
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: 'astrotagiario'
+    environment: 'development'
+
+# Targets de scraping
+scrape_configs:
+  # === PROMETHEUS SELF-MONITORING ===
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+    metrics_path: /metrics
+    scrape_interval: 30s
+
+  # === ASTROTAGIARIO API ===
+  - job_name: 'astrotagiario-api'
+    static_configs:
+      - targets: ['astrotagiario-api:8000']
+    metrics_path: /metrics
+    scrape_interval: 15s
+    scrape_timeout: 10s
+    honor_labels: true
+    params:
+      format: ['prometheus']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: 'astrotagiario-api'
+      - source_labels: [__address__]
+        target_label: service
+        replacement: 'api'
+
+  # === KESTRA METRICS ===
+  - job_name: 'kestra'
+    static_configs:
+      - targets: ['kestra:8080']
+    metrics_path: /prometheus
+    scrape_interval: 30s
+    scrape_timeout: 15s
+    honor_labels: true
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: 'kestra'
+      - source_labels: [__address__]
+        target_label: service
+        replacement: 'kestra'
+
+  # === NGINX METRICS ===
+  - job_name: 'nginx'
+    static_configs:
+      - targets: ['nginx:80']
+    metrics_path: /nginx-status
+    scrape_interval: 30s
+    scrape_timeout: 10s
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: 'nginx-proxy'
+
+  # === REDIS METRICS ===
+  - job_name: 'redis-astro'
+    static_configs:
+      - targets: ['astro_redis:6379']
+    metrics_path: /metrics
+    scrape_interval: 30s
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: 'redis-astro'
+      - source_labels: [__address__]
+        target_label: service
+        replacement: 'cache'

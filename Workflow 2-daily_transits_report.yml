@@ -1,0 +1,116 @@
+id: daily_transits_report
+namespace: astrotagiario.reports
+description: "Relatório automático de trânsitos diários com análise de aspectos importantes"
+
+# Executar todo dia às 07:00 (Brasília)
+triggers:
+  - id: daily_schedule
+    type: io.kestra.core.models.triggers.types.Schedule
+    cron: "0 7 * * *"
+    timezone: "America/Sao_Paulo"
+
+# Variáveis globais
+variables:
+  report_date: "{{ trigger.date | date('yyyy-MM-dd') }}"
+  report_title: "Relatório de Trânsitos - {{ trigger.date | date('dd/MM/yyyy') }}"
+  output_filename: "transits_daily_{{ trigger.date | date('yyyyMMdd') }}.json"
+
+tasks:
+  # 1. Calcular trânsitos diários globais
+  - id: calculate_daily_transits
+    type: io.kestra.plugin.scripts.python.Script
+    description: "Calcula trânsitos planetários para hoje"
+    runner: DOCKER
+    docker:
+      image: astrotagiario:latest
+      pullPolicy: IF_NOT_PRESENT
+    script: |
+      python astrotask.py \
+        --task daily_transits \
+        --date "{{ vars.report_date }}" \
+        --latitude -15.7939 \
+        --longitude -47.8828 \
+        --tz-str "America/Sao_Paulo"
+
+  # 2. Analisar aspectos importantes
+  - id: analyze_important_aspects
+    type: io.kestra.plugin.scripts.python.Script
+    description: "Analisa e classifica aspectos por importância"
+    script: |
+      import json
+      
+      # Carregar dados dos trânsitos
+      transits_data = json.loads('''{{ outputs.calculate_daily_transits.vars.stdout }}''')
+      
+      aspects = transits_data.get('aspects', [])
+      
+      # Classificar aspectos por importância
+      critical_aspects = []
+      important_aspects = []
+      
+      for aspect in aspects:
+          aspect_type = aspect.get('type', '')
+          orb = aspect.get('orb', 999)
+          strength = aspect.get('strength', 0)
+          
+          # Classificação baseada em tipo e força
+          if aspect_type in ['conjunction', 'opposition'] and orb <= 3:
+              critical_aspects.append(aspect)
+          elif aspect_type in ['trine', 'square'] and orb <= 5:
+              important_aspects.append(aspect)
+          elif strength >= 50:
+              important_aspects.append(aspect)
+      
+      # Criar análise detalhada
+      analysis = {
+          "daily_summary": {
+              "date": "{{ vars.report_date }}",
+              "total_aspects": len(aspects),
+              "critical_aspects": len(critical_aspects),
+              "important_aspects": len(important_aspects)
+          },
+          "aspect_details": {
+              "critical": critical_aspects[:5],  # Top 5 críticos
+              "important": important_aspects[:10]  # Top 10 importantes
+          },
+          "metadata": {
+              "generated_at": "{{ execution.startDate }}",
+              "execution_id": "{{ execution.id }}"
+          }
+      }
+      
+      print(json.dumps(analysis, indent=2, ensure_ascii=False))
+
+  # 3. Salvar relatório completo
+  - id: save_daily_report
+    type: io.kestra.plugin.core.storage.Put
+    description: "Salva relatório completo no armazenamento"
+    uri: "kestra:///reports/daily/{{ vars.output_filename }}"
+    from: "{{ outputs.analyze_important_aspects.vars.stdout }}"
+
+  # 4. Enviar notificação
+  - id: send_daily_notification
+    type: io.kestra.plugin.notifications.slack.SlackExecution  
+    url: "{{ secret('SLACK_WEBHOOK_URL') }}"
+    payload: |
+      {
+        "text": "📊 Relatório Diário de Trânsitos Gerado",
+        "attachments": [
+          {
+            "color": "good",
+            "title": "{{ vars.report_title }}",
+            "fields": [
+              {
+                "title": "Total de Aspectos",
+                "value": "{{ outputs.analyze_important_aspects.vars.stdout | jq('.daily_summary.total_aspects') }}",
+                "short": true
+              },
+              {
+                "title": "Aspectos Críticos",
+                "value": "{{ outputs.analyze_important_aspects.vars.stdout | jq('.daily_summary.critical_aspects') }}",
+                "short": true
+              }
+            ]
+          }
+        ]
+      }

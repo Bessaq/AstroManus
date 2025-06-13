@@ -1,0 +1,44 @@
+# Git
+.git
+.gitignore
+
+# Docker
+.dockerignore
+Dockerfile
+docker-compose.yml
+
+# Ambiente Virtual Python
+venv/
+.venv/
+env/
+*.pyc
+*.pyo
+*.pyd
+__pycache__/
+
+# Arquivos de IDE e Sistema Operacional
+.idea/
+.vscode/
+.DS_Store
+*.suo
+*.user
+*.user.*
+*.sln
+
+# Arquivos de configuração e segredos
+.env
+*.env
+*.env.*
+!*.env.example
+
+# Logs e arquivos temporários gerados localmente
+logs/
+*.log
+temp/
+cache/
+output/
+backups/
+
+# Documentação e testes que não precisam estar na imagem final
+tests/
+*.md
